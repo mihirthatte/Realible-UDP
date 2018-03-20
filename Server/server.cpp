@@ -6,39 +6,82 @@
 #include <fstream>
 #include <unistd.h>
 
-#define DATASIZE 1456
-#define BUFFSIZE 1568
+#define DATASIZE 1460
+#define BUFFSIZE 1472
 #define RECVWINDOW 65535
 #define MAXFILESIZE 10000000
+#define TIMEOUT_MS 100000
 
 using namespace std;
 
-string parseRequest(char* buffer){
+void parseAcknowledgement(char* buffer, unsigned int& sequenceNumber, unsigned int& acknowledgementNumber, int& byte_index, int prev_bytes){
   unsigned char bytes[4];
   int iterator = 0;
   bytes[0] = buffer[iterator++];
   bytes[1] = buffer[iterator++];
   bytes[2] = buffer[iterator++];
   bytes[3] = buffer[iterator++];
-  unsigned int sequenceNumber = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | (bytes[3]);
-  cout<<sequenceNumber<<endl;
+  unsigned int seqNum = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | (bytes[3]);
+  //cout<<sequenceNumber<<endl;
   bytes[0] = buffer[iterator++];
   bytes[1] = buffer[iterator++];
   bytes[2] = buffer[iterator++];
   bytes[3] = buffer[iterator++];
 
-  unsigned int acknowledgementNumber = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | (bytes[3]);
-  cout<<acknowledgementNumber<<endl;
+  unsigned int ackNum = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | (bytes[3]);
+  //cout<<acknowledgementNumber<<endl;
   bytes[0] = buffer[iterator++];
   bytes[1] = buffer[iterator++];
   bytes[2] = buffer[iterator++];
   bytes[3] = buffer[iterator++];
 
-  unsigned int receiveWindow = (bytes[0] << 8) | (bytes[1]);
-  cout<<receiveWindow<<endl;
+  unsigned int recvWin = (bytes[0] << 8) | (bytes[1]);
+  //cout<<receiveWindow<<endl;
+  if((bytes[3] & 1) == 0){
+    cout<<"Acknowledgement flag is not set"<<endl;
+    return;
+  }
+  if(acknowledgementNumber != seqNum){
+    cout<<"Server acknowledgement number did not match with the client sequence number."<<endl;
+    return;
+  }
+  if(sequenceNumber + (unsigned int)prev_bytes != ackNum){
+    cout<<"Client Acknowledgement numer did not match server sequence number."<<endl;
+    return;
+  }
+
+  sequenceNumber+= prev_bytes;
+  byte_index+= prev_bytes;
+}
+
+string parseRequest(char* buffer, unsigned int& acknowledgementNumber){
+  unsigned char bytes[4];
+  int iterator = 0;
+
+  bytes[0] = buffer[iterator++];
+  bytes[1] = buffer[iterator++];
+  bytes[2] = buffer[iterator++];
+  bytes[3] = buffer[iterator++];
+  unsigned int seqNum = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | (bytes[3]);
+  //cout<<sequenceNumber<<endl;
+  bytes[0] = buffer[iterator++];
+  bytes[1] = buffer[iterator++];
+  bytes[2] = buffer[iterator++];
+  bytes[3] = buffer[iterator++];
+
+  unsigned int ackNumber = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | (bytes[3]);
+  //cout<<acknowledgementNumber<<endl;
+  bytes[0] = buffer[iterator++];
+  bytes[1] = buffer[iterator++];
+  bytes[2] = buffer[iterator++];
+  bytes[3] = buffer[iterator++];
+
+  unsigned int recvWin = (bytes[0] << 8) | (bytes[1]);
+  //cout<<receiveWindow<<endl;
   string file_name = "";
   while(buffer[iterator] != '\0'){
     file_name+=string(1, buffer[iterator++]);
+    acknowledgementNumber++;
   }
   return file_name;
 }
@@ -64,7 +107,7 @@ void readFile(char* file_data, string file_name, int& file_size){
   }
 }
 
-void generateResponse(char* buffer, char* file_data, int file_size, int& byte_index, unsigned int sequenceNumber, unsigned int acknowledgementNumber, unsigned int receiveWindow){
+int generateResponse(char* buffer, char* file_data, int file_size, int byte_index, unsigned int sequenceNumber, unsigned int acknowledgementNumber, unsigned int receiveWindow){
   unsigned char bytes[4];
   bytes[0] = (sequenceNumber >> 24) & 0XFF;
   bytes[1] = (sequenceNumber >> 16) & 0XFF;
@@ -91,7 +134,8 @@ void generateResponse(char* buffer, char* file_data, int file_size, int& byte_in
 
   int cur_size = min(DATASIZE, file_size - byte_index);
   memcpy(buffer+12, file_data+byte_index, cur_size);
-  byte_index+=cur_size;
+  //byte_index+=cur_size;
+  return cur_size;
 }
 
 int main(int argc, char const* argv[]){
@@ -143,14 +187,17 @@ int main(int argc, char const* argv[]){
       recvlen = recvfrom(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, &raddrlen);
 
 
-      string file_name = parseRequest(buffer);
+      string file_name = parseRequest(buffer, acknowledgementNumber);
       bzero(buffer, BUFFSIZE);
       int file_size = 0;
       readFile(file_data, file_name, file_size);
 
+      fd_set fds;
+      struct timeval tv;
+      //cout<<sequenceNumber<<" "<<acknowledgementNumber<<endl;
       int byte_index = 0;
       while(byte_index < file_size){
-        generateResponse(buffer, file_data, file_size, byte_index, sequenceNumber, acknowledgementNumber, receiveWindow);
+        int prev_bytes = generateResponse(buffer, file_data, file_size, byte_index, sequenceNumber, acknowledgementNumber, receiveWindow);
 
         if(sendto(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, raddrlen) < 0){
           perror("Error:");
@@ -160,7 +207,27 @@ int main(int argc, char const* argv[]){
           exit(EXIT_FAILURE);
         }
         bzero(buffer, BUFFSIZE);
-        sequenceNumber+=byte_index;
+
+
+
+
+        FD_ZERO(&fds);
+        FD_SET(server_fd, &fds);
+        tv.tv_sec = 1;
+        tv.tv_usec = 0;
+
+        if(select(server_fd+1, &fds, NULL, NULL, &tv) == 0){
+          cout<<"Failed to receive acknowledgement. Retransmitting the packet."<<endl;
+        }
+        else{
+            if(recvfrom(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, &raddrlen) < 0){
+              cout<<"Failed to read the socket buffer."<<endl;
+            }
+            else{
+              parseAcknowledgement(buffer, sequenceNumber, acknowledgementNumber, byte_index, prev_bytes);
+            }
+            bzero(buffer, BUFFSIZE);
+        }
       }
 
       memset(file_data, 0, MAXFILESIZE);
@@ -174,7 +241,7 @@ int main(int argc, char const* argv[]){
         exit(EXIT_FAILURE);
       }
       bzero(buffer, BUFFSIZE);
-      sequenceNumber+=1;
+      //sequenceNumber+=1;
     }
     close(server_fd);
     free(buffer);
