@@ -230,6 +230,7 @@ int main(int argc, char const* argv[]){
         }
       }
 
+
       memset(file_data, 0, MAXFILESIZE);
       int it = 0;
       generateResponse(buffer, file_data, MAXFILESIZE, it, sequenceNumber, acknowledgementNumber, receiveWindow);
@@ -241,7 +242,7 @@ int main(int argc, char const* argv[]){
         exit(EXIT_FAILURE);
       }
       bzero(buffer, BUFFSIZE);
-      //sequenceNumber+=1;
+
     }
     close(server_fd);
     free(buffer);

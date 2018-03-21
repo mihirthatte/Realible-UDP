@@ -9,6 +9,7 @@
 #define BUFFSIZE 1472
 #define RECVWINDOW 65535
 #define TIMEOUT_MS 100000
+#define TIMEOUT_S 5
 #define MAXFILESIZE 10000000
 
 using namespace std;
@@ -132,14 +133,14 @@ int main(int argc, char const* argv[]){
   	exit(EXIT_FAILURE);
   }
 
-  /*
+
   struct timeval tv;
-  tv.tv_sec = 0;
-  tv.tv_usec = TIMEOUT_MS;
+  tv.tv_sec = TIMEOUT_S;
+  tv.tv_usec = 0;
   if (setsockopt(sock_id, SOL_SOCKET, SO_RCVTIMEO,&tv,sizeof(tv)) < 0) {
       perror("Error");
   }
-  */
+
 
   memset((char*)&server_address, 0, sizeof(server_address));
   server_address.sin_family = AF_INET;
@@ -168,9 +169,10 @@ int main(int argc, char const* argv[]){
   bzero(buffer, BUFFSIZE);
   bool flag = false;
   int iterator = 0;
-  while(!flag && (recvfrom(sock_id, buffer, BUFFSIZE, 0, (struct sockaddr*)&server_address, &addrlen) > 0)){
+  while(recvfrom(sock_id, buffer, BUFFSIZE, 0, (struct sockaddr*)&server_address, &addrlen) > 0){
     flag = checkEndPacket(buffer);
-    if(!flag) copyBufferData(file_data, buffer, iterator, sequenceNumber, acknowledgementNumber);
+    if(flag) break;
+    copyBufferData(file_data, buffer, iterator, sequenceNumber, acknowledgementNumber);
     bzero(buffer, BUFFSIZE);
     generateAcknowledgement(buffer, sequenceNumber, acknowledgementNumber, receiveWindow);
 
