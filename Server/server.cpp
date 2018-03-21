@@ -5,6 +5,8 @@
 #include <cstring>
 #include <fstream>
 #include <unistd.h>
+#include <ctime>
+#include <chrono>
 
 #define DATASIZE 1460
 #define BUFFSIZE 1472
@@ -13,6 +15,20 @@
 #define TIMEOUT_MS 100000
 
 using namespace std;
+
+int deviation = 1;
+long long estimated_RTT = 0;
+long long calculate_timeout(long long sample_RTT){
+    sample_RTT -= estimated_RTT>>3;
+    estimated_RTT += sample_RTT;
+    if (sample_RTT < 0 )
+        sample_RTT = - 1 * sample_RTT;
+    sample_RTT -= deviation >> 3;
+    deviation += sample_RTT;
+    cout<<"Estimated time "<<estimated_RTT<<endl;
+    return ((estimated_RTT >> 3) + (deviation >> 1));    
+} 
+
 
 void parseAcknowledgement(char* buffer, unsigned int& sequenceNumber, unsigned int& acknowledgementNumber, int& byte_index, int prev_bytes){
   unsigned char bytes[4];
@@ -196,7 +212,15 @@ int main(int argc, char const* argv[]){
       struct timeval tv;
       //cout<<sequenceNumber<<" "<<acknowledgementNumber<<endl;
       int byte_index = 0;
+        
+      //set intial timeout to 1000000 microsecs;
+      tv.tv_sec = 0;
+      tv.tv_usec = 1000000;
       while(byte_index < file_size){
+
+        //Start the timer for measuring RTT -
+        auto start_timer = std::chrono::high_resolution_clock::now(); 
+        
         int prev_bytes = generateResponse(buffer, file_data, file_size, byte_index, sequenceNumber, acknowledgementNumber, receiveWindow);
 
         if(sendto(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, raddrlen) < 0){
@@ -208,13 +232,8 @@ int main(int argc, char const* argv[]){
         }
         bzero(buffer, BUFFSIZE);
 
-
-
-
         FD_ZERO(&fds);
         FD_SET(server_fd, &fds);
-        tv.tv_sec = 1;
-        tv.tv_usec = 0;
 
         if(select(server_fd+1, &fds, NULL, NULL, &tv) == 0){
           cout<<"Failed to receive acknowledgement. Retransmitting the packet."<<endl;
@@ -224,6 +243,16 @@ int main(int argc, char const* argv[]){
               cout<<"Failed to read the socket buffer."<<endl;
             }
             else{
+              //Ack received, end timer
+              auto end_timer = std::chrono::high_resolution_clock::now() - start_timer;
+              long long elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end_timer).count();
+              cout<<"RTT was - "<<elapsed<<" micro seconds"<<endl;
+              //Calculate timeout value using Jacobson/Karels Algorithm - 
+              if (estimated_RTT == 0)
+                estimated_RTT = elapsed;
+              //set timeout for next packet -
+              tv.tv_usec = calculate_timeout(elapsed);
+              cout<<"Time out - "<<tv.tv_usec<<endl;
               parseAcknowledgement(buffer, sequenceNumber, acknowledgementNumber, byte_index, prev_bytes);
             }
             bzero(buffer, BUFFSIZE);
