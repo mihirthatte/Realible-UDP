@@ -25,7 +25,7 @@ long long calculate_timeout(long long sample_RTT){
         sample_RTT = - 1 * sample_RTT;
     sample_RTT -= deviation >> 3;
     deviation += sample_RTT;
-    cout<<"Estimated time "<<estimated_RTT<<endl;
+    //cout<<"Estimated time "<<estimated_RTT<<endl;
     return ((estimated_RTT >> 3) + (deviation >> 1));    
 } 
 
@@ -61,7 +61,8 @@ void parseAcknowledgement(char* buffer, unsigned int& sequenceNumber, unsigned i
     cout<<"Server acknowledgement number did not match with the client sequence number."<<endl;
     return;
   }
-  if(sequenceNumber + (unsigned int)prev_bytes != ackNum){
+ // if(sequenceNumber + (unsigned int)prev_bytes != ackNum){
+ if(sequenceNumber != ackNum){
     cout<<"Client Acknowledgement numer did not match server sequence number."<<endl;
     return;
   }
@@ -86,6 +87,7 @@ string parseRequest(char* buffer, unsigned int& acknowledgementNumber){
   bytes[3] = buffer[iterator++];
 
   unsigned int ackNumber = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | (bytes[3]);
+  cout<<"Receiver says ack - "<<ackNumber<<endl;
   //cout<<acknowledgementNumber<<endl;
   bytes[0] = buffer[iterator++];
   bytes[1] = buffer[iterator++];
@@ -150,6 +152,7 @@ int generateResponse(char* buffer, char* file_data, int file_size, int byte_inde
 
   int cur_size = min(DATASIZE, file_size - byte_index);
   memcpy(buffer+12, file_data+byte_index, cur_size);
+  cout<<"Seq number for sending -- "<<sequenceNumber<<endl;
   //byte_index+=cur_size;
   return cur_size;
 }
@@ -220,45 +223,53 @@ int main(int argc, char const* argv[]){
 
         //Start the timer for measuring RTT -
         auto start_timer = std::chrono::high_resolution_clock::now(); 
-        
-        int prev_bytes = generateResponse(buffer, file_data, file_size, byte_index, sequenceNumber, acknowledgementNumber, receiveWindow);
+        for(int cwnd = 1; cwnd <2; cwnd*=2){
 
-        if(sendto(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, raddrlen) < 0){
-          perror("Error:");
-          cout<<"Sending Failed"<<endl;
-          close(server_fd);
-          free(buffer);
-          exit(EXIT_FAILURE);
-        }
-        bzero(buffer, BUFFSIZE);
+            int prev_bytes = 0;
+            int packet = 0;
+            while(packet < cwnd){
+                prev_bytes += generateResponse(buffer, file_data, file_size, byte_index, sequenceNumber, acknowledgementNumber, receiveWindow);
+                sequenceNumber=prev_bytes;
+                cout<<"Bytes send prev bytes "<<prev_bytes<<endl;
 
-        FD_ZERO(&fds);
-        FD_SET(server_fd, &fds);
+                if(sendto(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, raddrlen) < 0){
+                  perror("Error:");
+                  cout<<"Sending Failed"<<endl;
+                  close(server_fd);
+                  free(buffer);
+                  exit(EXIT_FAILURE);
+                }
+                bzero(buffer, BUFFSIZE);
+                packet++;
+            }
 
-        if(select(server_fd+1, &fds, NULL, NULL, &tv) == 0){
-          cout<<"Failed to receive acknowledgement. Retransmitting the packet."<<endl;
-        }
-        else{
-            if(recvfrom(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, &raddrlen) < 0){
-              cout<<"Failed to read the socket buffer."<<endl;
+            FD_ZERO(&fds);
+            FD_SET(server_fd, &fds);
+
+            if(select(server_fd+1, &fds, NULL, NULL, &tv) == 0){
+            cout<<"Failed to receive acknowledgement. Retransmitting the packet."<<endl;
             }
             else{
-              //Ack received, end timer
-              auto end_timer = std::chrono::high_resolution_clock::now() - start_timer;
-              long long elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end_timer).count();
-              cout<<"RTT was - "<<elapsed<<" micro seconds"<<endl;
-              //Calculate timeout value using Jacobson/Karels Algorithm - 
-              if (estimated_RTT == 0)
-                estimated_RTT = elapsed;
-              //set timeout for next packet -
-              tv.tv_usec = calculate_timeout(elapsed);
-              cout<<"Time out - "<<tv.tv_usec<<endl;
-              parseAcknowledgement(buffer, sequenceNumber, acknowledgementNumber, byte_index, prev_bytes);
+                if(recvfrom(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, &raddrlen) < 0){
+                cout<<"Failed to read the socket buffer."<<endl;
+                }
+                else{
+                //Ack received, end timer
+                auto end_timer = std::chrono::high_resolution_clock::now() - start_timer;
+                long long elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end_timer).count();
+                //cout<<"RTT was - "<<elapsed<<" micro seconds"<<endl;
+                //Calculate timeout value using Jacobson/Karels Algorithm - 
+                if (estimated_RTT == 0)
+                    estimated_RTT = elapsed;
+                //set timeout for next packet -
+                tv.tv_usec = calculate_timeout(elapsed);
+                //cout<<"Time out - "<<tv.tv_usec<<endl;
+                parseAcknowledgement(buffer, sequenceNumber, acknowledgementNumber, byte_index, prev_bytes);
+                }
+                bzero(buffer, BUFFSIZE);
             }
-            bzero(buffer, BUFFSIZE);
         }
       }
-
 
       memset(file_data, 0, MAXFILESIZE);
       int it = 0;
@@ -271,7 +282,7 @@ int main(int argc, char const* argv[]){
         exit(EXIT_FAILURE);
       }
       bzero(buffer, BUFFSIZE);
-
+      //sequenceNumber+=1;
     }
     close(server_fd);
     free(buffer);
