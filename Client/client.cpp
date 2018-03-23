@@ -10,6 +10,7 @@
 #define RECVWINDOW 65535
 #define TIMEOUT_MS 100000
 #define TIMEOUT_S 5
+#define TIMEOUT_US 1000
 #define MAXFILESIZE 10000000
 
 using namespace std;
@@ -50,7 +51,7 @@ bool checkEndPacket(char* buffer){
   return true;
 }
 
-void copyBufferData(char* file_data, char* buffer, int& iterator, unsigned int& sequenceNumber, unsigned int& acknowledgementNumber){
+void copyBufferData(char* file_data, char* buffer, unsigned int& sequenceNumber, unsigned int& acknowledgementNumber){
   unsigned char bytes[4];
   int it = 0;
   bytes[0] = buffer[it++];
@@ -74,6 +75,8 @@ void copyBufferData(char* file_data, char* buffer, int& iterator, unsigned int& 
 
   unsigned int recvWin = (bytes[0] << 8) | (bytes[1]);
 
+  if(seqNum < acknowledgementNumber) return;
+
   if(acknowledgementNumber != seqNum){
     cout<<"Server sequence number did not match with the client acknowledgement number"<<endl;
     return;
@@ -83,8 +86,7 @@ void copyBufferData(char* file_data, char* buffer, int& iterator, unsigned int& 
 
   for(int index = 12; index < BUFFSIZE; index++){
     if(buffer[index] == '\0') break;
-    file_data[iterator++] = buffer[index];
-    acknowledgementNumber++;
+    file_data[acknowledgementNumber++] = buffer[index];
   }
 }
 
@@ -134,13 +136,14 @@ int main(int argc, char const* argv[]){
   }
 
 
+  /*
   struct timeval tv;
   tv.tv_sec = TIMEOUT_S;
   tv.tv_usec = 0;
   if (setsockopt(sock_id, SOL_SOCKET, SO_RCVTIMEO,&tv,sizeof(tv)) < 0) {
       perror("Error");
   }
-
+	*/
 
   memset((char*)&server_address, 0, sizeof(server_address));
   server_address.sin_family = AF_INET;
@@ -167,11 +170,12 @@ int main(int argc, char const* argv[]){
 
   char* file_data = (char*)calloc(MAXFILESIZE, sizeof(char));
   bzero(buffer, BUFFSIZE);
-  bool flag = false;
-  int iterator = 0;
+  bool is_end_of_file = false;
+  //int iterator = 0;
+  /*
   while(recvfrom(sock_id, buffer, BUFFSIZE, 0, (struct sockaddr*)&server_address, &addrlen) > 0){
-    flag = checkEndPacket(buffer);
-    if(flag) break;
+    is_end_of_file = checkEndPacket(buffer);
+    if(is_end_of_file) break;
     copyBufferData(file_data, buffer, iterator, sequenceNumber, acknowledgementNumber);
     bzero(buffer, BUFFSIZE);
     generateAcknowledgement(buffer, sequenceNumber, acknowledgementNumber, receiveWindow);
@@ -183,6 +187,53 @@ int main(int argc, char const* argv[]){
       exit(EXIT_FAILURE);
     }
     bzero(buffer, BUFFSIZE);
+  }
+  */
+  int windowSize = 10;
+
+  fd_set fds;
+  struct timeval tv;
+
+
+  while(!is_end_of_file){
+  	int window_packet;
+  	for(window_packet = 0; (window_packet < windowSize) && (!is_end_of_file); window_packet){
+  		bzero(buffer, BUFFSIZE);
+
+  		FD_ZERO(&fds);
+  		FD_SET(sock_id, &fds);
+
+  		tv.tv_sec = 0;
+  		tv.tv_usec = TIMEOUT_US;
+
+  		if(select(sock_id+1, &fds, NULL, NULL, &tv) == 0){
+  			cout<<"Timeout on receiving packet. Sending the last acknowledgement."<<endl;
+  			break;
+  		}
+  		else{
+  			if(recvfrom(sock_id, buffer, BUFFSIZE, 0, (struct sockaddr*)&server_address, &addrlen) < 0){
+  				cout<<"Error while receiving packet from client socket."<<endl;
+  				perror("Error: ");
+  			}
+  			else{
+  				is_end_of_file = checkEndPacket(buffer);
+  				if(is_end_of_file) break;
+  				copyBufferData(file_data, buffer, sequenceNumber, acknowledgementNumber);
+  			}
+
+  		}
+
+  	}
+  	bzero(buffer, BUFFSIZE);
+  	generateAcknowledgement(buffer, sequenceNumber, acknowledgementNumber, receiveWindow);
+  	if(sendto(sock_id, buffer, BUFFSIZE, 0, (struct sockaddr*)&server_address, addrlen) < 0){
+  		perror("Error");
+  		cout<<"Sending Failed"<<endl;
+  	}
+  	else{
+  		sequenceNumber++;
+  	}
+  	windowSize = window_packet + 1;
   }
 
   cout<<file_data<<endl;
