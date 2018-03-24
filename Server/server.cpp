@@ -181,17 +181,17 @@ int generateResponse(char* buffer, char* file_data, int file_size, int byte_inde
 }
 
 int main(int argc, char const* argv[]){
-    if(argc < 2){
-      cout<<"Please pass the port number as parameter."<<endl;
+    if(argc < 3){
+      cout<<"Please pass the port number and advertised window size as parameter."<<endl;
       exit(EXIT_FAILURE);
     }
-    if(argc > 2){
+    if(argc > 3){
       cout<<"Program accepts only parameter which is the port number."<<endl;
       exit(EXIT_FAILURE);
     }
     int portNumber = atoi(argv[1]);
-    int assortedWindow = 20;
-    int threshold = assortedWindow;
+    int advertisedWindow = atoi(argv[2]);
+    int threshold = advertisedWindow;
     int server_fd;
     if((server_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0){
       cout<<"Socket creating failed."<<endl;
@@ -247,7 +247,7 @@ int main(int argc, char const* argv[]){
       tv.tv_usec = 900000;
       cwnd = 1;
       duplicate_count = 0;
-      threshold = assortedWindow;
+      threshold = advertisedWindow;
       cout<<"File size: "<<file_size<<endl;
       while(byte_index < file_size){
 
@@ -257,7 +257,7 @@ int main(int argc, char const* argv[]){
 
             int prev_bytes = 0;
             int packet = 0;
-            while(packet < min(cwnd, assortedWindow) && (byte_index + prev_bytes) < file_size){
+            while(packet < min(cwnd, advertisedWindow) && (byte_index + prev_bytes) < file_size){
                 prev_bytes += generateResponse(buffer, file_data, file_size, byte_index, sequenceNumber, acknowledgementNumber, receiveWindow, prev_bytes);
                 //sequenceNumber=prev_bytes;
                 cout<<"Bytes send prev bytes "<<sequenceNumber+prev_bytes<<" "<<byte_index+prev_bytes<<endl;

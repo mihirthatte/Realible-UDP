@@ -119,7 +119,7 @@ void generateAcknowledgement(char* buffer, unsigned int& sequenceNumber, unsigne
 }
 
 int main(int argc, char const* argv[]){
-  if(argc != 4){
+  if(argc != 5){
     cout<<"Invalid number of parameters."<<endl;
     exit(EXIT_FAILURE);
   }
@@ -127,6 +127,7 @@ int main(int argc, char const* argv[]){
   string server_host = string(argv[1]);
   int server_port = atoi(argv[2]);
   string file_name = string(argv[3]);
+  int advertisedWindow = atoi(argv[4]);
 
   int sock_id;
 
@@ -236,7 +237,7 @@ int main(int argc, char const* argv[]){
   		cout<<"Sending Failed"<<endl;
   	}
 
-  	windowSize = window_packet + 1;
+  	windowSize = min(window_packet + 1, advertisedWindow);
   }
 
   //cout<<file_data<<endl;
