@@ -17,6 +17,9 @@
 using namespace std;
 
 int deviation = 1;
+int threshold = 0;
+int cwnd = 1;
+int duplicate_count = 0;
 long long estimated_RTT = 0;
 long long calculate_timeout(long long sample_RTT){
     sample_RTT -= estimated_RTT>>3;
@@ -26,8 +29,8 @@ long long calculate_timeout(long long sample_RTT){
     sample_RTT -= deviation >> 3;
     deviation += sample_RTT;
     //cout<<"Estimated time "<<estimated_RTT<<endl;
-    return ((estimated_RTT >> 3) + (deviation >> 1));    
-} 
+    return ((estimated_RTT >> 3) + (deviation >> 1));
+}
 
 
 void parseAcknowledgement(char* buffer, unsigned int& sequenceNumber, unsigned int& acknowledgementNumber, int& byte_index, int prev_bytes){
@@ -61,14 +64,34 @@ void parseAcknowledgement(char* buffer, unsigned int& sequenceNumber, unsigned i
     cout<<"Server acknowledgement number did not match with the client sequence number."<<endl;
     return;
   }
- // if(sequenceNumber + (unsigned int)prev_bytes != ackNum){
- if(sequenceNumber != ackNum){
-    cout<<"Client Acknowledgement numer did not match server sequence number."<<endl;
-    return;
-  }
 
-  sequenceNumber+= prev_bytes;
-  byte_index+= prev_bytes;
+
+if(sequenceNumber == ackNum){
+  duplicate_count++;
+  if(duplicate_count == 3){
+    threshold = cwnd/2;
+    cwnd = threshold + 3;
+  }
+  if(duplicate_count > 3){
+    cwnd+=1;
+  }
+  return;
+}
+
+if(cwnd * 2 > threshold){
+  cwnd+=1;
+}
+else{
+  cwnd*=2;
+}
+if(duplicate_count >= 3){
+  cwnd = threshold;
+}
+  duplicate_count = 0;
+ sequenceNumber = ackNum;
+
+  byte_index = ackNum;
+  cout<<sequenceNumber<<" "<<ackNum<<" "<<byte_index<<endl;
 }
 
 string parseRequest(char* buffer, unsigned int& acknowledgementNumber){
@@ -87,7 +110,7 @@ string parseRequest(char* buffer, unsigned int& acknowledgementNumber){
   bytes[3] = buffer[iterator++];
 
   unsigned int ackNumber = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | (bytes[3]);
-  cout<<"Receiver says ack - "<<ackNumber<<endl;
+  //cout<<"Receiver says ack - "<<ackNumber<<endl;
   //cout<<acknowledgementNumber<<endl;
   bytes[0] = buffer[iterator++];
   bytes[1] = buffer[iterator++];
@@ -125,12 +148,12 @@ void readFile(char* file_data, string file_name, int& file_size){
   }
 }
 
-int generateResponse(char* buffer, char* file_data, int file_size, int byte_index, unsigned int sequenceNumber, unsigned int acknowledgementNumber, unsigned int receiveWindow){
+int generateResponse(char* buffer, char* file_data, int file_size, int byte_index, unsigned int sequenceNumber, unsigned int acknowledgementNumber, unsigned int receiveWindow, int prev_bytes){
   unsigned char bytes[4];
-  bytes[0] = (sequenceNumber >> 24) & 0XFF;
-  bytes[1] = (sequenceNumber >> 16) & 0XFF;
-  bytes[2] = (sequenceNumber >> 8) & 0XFF;
-  bytes[3] = sequenceNumber & 0XFF;
+  bytes[0] = ((sequenceNumber + prev_bytes)>> 24) & 0XFF;
+  bytes[1] = ((sequenceNumber + prev_bytes) >> 16) & 0XFF;
+  bytes[2] = ((sequenceNumber + prev_bytes) >> 8) & 0XFF;
+  bytes[3] = (sequenceNumber + prev_bytes) & 0XFF;
 
 
 
@@ -151,8 +174,8 @@ int generateResponse(char* buffer, char* file_data, int file_size, int byte_inde
   memcpy(buffer+8, bytes, 4);
 
   int cur_size = min(DATASIZE, file_size - byte_index);
-  memcpy(buffer+12, file_data+byte_index, cur_size);
-  cout<<"Seq number for sending -- "<<sequenceNumber<<endl;
+  memcpy(buffer+12, file_data+byte_index+prev_bytes, cur_size);
+  //cout<<"Seq number for sending -- "<<sequenceNumber<<endl;
   //byte_index+=cur_size;
   return cur_size;
 }
@@ -167,6 +190,8 @@ int main(int argc, char const* argv[]){
       exit(EXIT_FAILURE);
     }
     int portNumber = atoi(argv[1]);
+    int assortedWindow = 20;
+    int threshold = assortedWindow;
     int server_fd;
     if((server_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0){
       cout<<"Socket creating failed."<<endl;
@@ -208,6 +233,7 @@ int main(int argc, char const* argv[]){
 
       string file_name = parseRequest(buffer, acknowledgementNumber);
       bzero(buffer, BUFFSIZE);
+      bzero(file_data, MAXFILESIZE);
       int file_size = 0;
       readFile(file_data, file_name, file_size);
 
@@ -215,24 +241,27 @@ int main(int argc, char const* argv[]){
       struct timeval tv;
       //cout<<sequenceNumber<<" "<<acknowledgementNumber<<endl;
       int byte_index = 0;
-        
+
       //set intial timeout to 1000000 microsecs;
       tv.tv_sec = 0;
-      tv.tv_usec = 1000000;
+      tv.tv_usec = 900000;
+      cwnd = 1;
+      duplicate_count = 0;
+      threshold = assortedWindow;
+      cout<<"File size: "<<file_size<<endl;
       while(byte_index < file_size){
 
         //Start the timer for measuring RTT -
-        auto start_timer = std::chrono::high_resolution_clock::now(); 
-        for(int cwnd = 1; cwnd <2; cwnd*=2){
+        auto start_timer = std::chrono::high_resolution_clock::now();
+        //for(int cwnd = 1; cwnd <2; cwnd*=2){
 
             int prev_bytes = 0;
             int packet = 0;
-            while(packet < cwnd){
-                prev_bytes += generateResponse(buffer, file_data, file_size, byte_index, sequenceNumber, acknowledgementNumber, receiveWindow);
-                sequenceNumber=prev_bytes;
-                cout<<"Bytes send prev bytes "<<prev_bytes<<endl;
-
-                if(sendto(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, raddrlen) < 0){
+            while(packet < min(cwnd, assortedWindow) && (byte_index + prev_bytes) < file_size){
+                prev_bytes += generateResponse(buffer, file_data, file_size, byte_index, sequenceNumber, acknowledgementNumber, receiveWindow, prev_bytes);
+                //sequenceNumber=prev_bytes;
+                cout<<"Bytes send prev bytes "<<sequenceNumber+prev_bytes<<" "<<byte_index+prev_bytes<<endl;
+                if(sendto(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, raddrlen) <= 0){
                   perror("Error:");
                   cout<<"Sending Failed"<<endl;
                   close(server_fd);
@@ -242,12 +271,15 @@ int main(int argc, char const* argv[]){
                 bzero(buffer, BUFFSIZE);
                 packet++;
             }
-
             FD_ZERO(&fds);
             FD_SET(server_fd, &fds);
 
             if(select(server_fd+1, &fds, NULL, NULL, &tv) == 0){
-            cout<<"Failed to receive acknowledgement. Retransmitting the packet."<<endl;
+              cout<<"Failed to receive acknowledgement. Retransmitting the packet."<<endl;
+              //perror("Error: ");
+              threshold = cwnd/2;
+              cwnd = 1;
+              duplicate_count = 0;
             }
             else{
                 if(recvfrom(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, &raddrlen) < 0){
@@ -258,7 +290,7 @@ int main(int argc, char const* argv[]){
                 auto end_timer = std::chrono::high_resolution_clock::now() - start_timer;
                 long long elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end_timer).count();
                 //cout<<"RTT was - "<<elapsed<<" micro seconds"<<endl;
-                //Calculate timeout value using Jacobson/Karels Algorithm - 
+                //Calculate timeout value using Jacobson/Karels Algorithm -
                 if (estimated_RTT == 0)
                     estimated_RTT = elapsed;
                 //set timeout for next packet -
@@ -268,12 +300,12 @@ int main(int argc, char const* argv[]){
                 }
                 bzero(buffer, BUFFSIZE);
             }
-        }
+        //}
       }
 
       memset(file_data, 0, MAXFILESIZE);
       int it = 0;
-      generateResponse(buffer, file_data, MAXFILESIZE, it, sequenceNumber, acknowledgementNumber, receiveWindow);
+      generateResponse(buffer, file_data, MAXFILESIZE, it, sequenceNumber, acknowledgementNumber, receiveWindow, 0);
       if(sendto(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, raddrlen) < 0){
         perror("Error:");
         cout<<"Sending Failed"<<endl;

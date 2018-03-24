@@ -5,12 +5,13 @@
 #include <unistd.h>
 #include <string.h>
 #include <arpa/inet.h>
+#include <fstream>
 
 #define BUFFSIZE 1472
 #define RECVWINDOW 65535
 #define TIMEOUT_MS 100000
 #define TIMEOUT_S 5
-#define TIMEOUT_US 1000
+#define TIMEOUT_US 10000
 #define MAXFILESIZE 10000000
 
 using namespace std;
@@ -88,6 +89,7 @@ void copyBufferData(char* file_data, char* buffer, unsigned int& sequenceNumber,
     if(buffer[index] == '\0') break;
     file_data[acknowledgementNumber++] = buffer[index];
   }
+  cout<<acknowledgementNumber<<" "<<seqNum<<endl;
 }
 
 void generateAcknowledgement(char* buffer, unsigned int& sequenceNumber, unsigned int& acknowledgementNumber, unsigned int receiveWindow){
@@ -197,7 +199,7 @@ int main(int argc, char const* argv[]){
 
   while(!is_end_of_file){
   	int window_packet;
-  	for(window_packet = 0; (window_packet < windowSize) && (!is_end_of_file); window_packet){
+  	for(window_packet = 0; (window_packet < windowSize) && (!is_end_of_file); window_packet++){
   		bzero(buffer, BUFFSIZE);
 
   		FD_ZERO(&fds);
@@ -217,7 +219,10 @@ int main(int argc, char const* argv[]){
   			}
   			else{
   				is_end_of_file = checkEndPacket(buffer);
-  				if(is_end_of_file) break;
+  				if(is_end_of_file){
+            cout<<"End Packet received"<<endl;
+            break;
+          }
   				copyBufferData(file_data, buffer, sequenceNumber, acknowledgementNumber);
   			}
 
@@ -230,13 +235,14 @@ int main(int argc, char const* argv[]){
   		perror("Error");
   		cout<<"Sending Failed"<<endl;
   	}
-  	else{
-  		sequenceNumber++;
-  	}
+
   	windowSize = window_packet + 1;
   }
 
-  cout<<file_data<<endl;
+  //cout<<file_data<<endl;
+  ofstream output_file(file_name);
+  output_file<<file_data;
+  output_file.close();
 
   close(sock_id);
   free(buffer);
