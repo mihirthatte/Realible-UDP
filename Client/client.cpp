@@ -47,7 +47,9 @@ void generateRequest(string file_name, char* buffer, unsigned int& sequenceNumbe
 
 }
 
-bool checkEndPacket(char* buffer){
+bool checkEndPacket(char* buffer, bool& file_not_found){
+  if((buffer[11] & 4) > 0) file_not_found = true;
+  else file_not_found = false;
   for(int index = 12; index < BUFFSIZE; index++){
     if(buffer[index] != 0) return false;
   }
@@ -81,7 +83,6 @@ void copyBufferData(char* file_data, char* buffer, unsigned int& sequenceNumber,
   if(seqNum < acknowledgementNumber) return;
 
   if(acknowledgementNumber != seqNum){
-    cout<<"Server sequence number did not match with the client acknowledgement number"<<endl;
     return;
   }
 
@@ -91,7 +92,6 @@ void copyBufferData(char* file_data, char* buffer, unsigned int& sequenceNumber,
     if(buffer[index] == '\0') break;
     file_data[acknowledgementNumber++] = buffer[index];
   }
-  cout<<acknowledgementNumber<<" "<<seqNum<<endl;
 }
 
 void generateAcknowledgement(char* buffer, unsigned int& sequenceNumber, unsigned int& acknowledgementNumber, unsigned int receiveWindow){
@@ -130,7 +130,6 @@ void closeConnection(char* buffer, unsigned int sequenceNumber, unsigned int ack
     tv.tv_sec = 0;
     tv.tv_usec = 10000;
     if(select(sock_id+1, &fds, NULL, NULL, &tv) == 0){
-      cout<<"Timeout on receiving packet."<<endl;
       is_connection_terminated = true;;
     }
     else{
@@ -142,12 +141,9 @@ void closeConnection(char* buffer, unsigned int sequenceNumber, unsigned int ack
       else{
         if((buffer[11] & 2) > 0){
           is_connection_terminated = true;
-          cout<<"Terminated"<<endl;
         }
         else{
           unsigned char temp = (unsigned char)buffer[11];
-          cout<<(int)temp<<endl;
-          cout<<"Resending the termination."<<endl;
           bzero(buffer, BUFFSIZE);
           generateAcknowledgement(buffer, sequenceNumber, acknowledgementNumber, RECVWINDOW);
 
@@ -184,16 +180,6 @@ int main(int argc, char const* argv[]){
   	exit(EXIT_FAILURE);
   }
 
-
-  /*
-  struct timeval tv;
-  tv.tv_sec = TIMEOUT_S;
-  tv.tv_usec = 0;
-  if (setsockopt(sock_id, SOL_SOCKET, SO_RCVTIMEO,&tv,sizeof(tv)) < 0) {
-      perror("Error");
-  }
-	*/
-
   memset((char*)&server_address, 0, sizeof(server_address));
   server_address.sin_family = AF_INET;
   server_address.sin_port = htons(server_port);
@@ -220,30 +206,14 @@ int main(int argc, char const* argv[]){
   char* file_data = (char*)calloc(MAXFILESIZE, sizeof(char));
   bzero(buffer, BUFFSIZE);
   bool is_end_of_file = false;
-  //int iterator = 0;
-  /*
-  while(recvfrom(sock_id, buffer, BUFFSIZE, 0, (struct sockaddr*)&server_address, &addrlen) > 0){
-    is_end_of_file = checkEndPacket(buffer);
-    if(is_end_of_file) break;
-    copyBufferData(file_data, buffer, iterator, sequenceNumber, acknowledgementNumber);
-    bzero(buffer, BUFFSIZE);
-    generateAcknowledgement(buffer, sequenceNumber, acknowledgementNumber, receiveWindow);
 
-    if(sendto(sock_id, buffer, BUFFSIZE, 0, (struct sockaddr*) &server_address, addrlen) < 0){
-      perror("Error");
-      cout<<"Sending Failed"<<endl;
-      close(sock_id);
-      exit(EXIT_FAILURE);
-    }
-    bzero(buffer, BUFFSIZE);
-  }
-  */
   int windowSize = 10;
 
   fd_set fds;
   struct timeval tv;
 
   int packet_count = 0;
+  bool file_not_found;
   while(!is_end_of_file){
   	int window_packet;
   	for(window_packet = 0; (window_packet < windowSize) && (!is_end_of_file); window_packet++){
@@ -256,7 +226,6 @@ int main(int argc, char const* argv[]){
   		tv.tv_usec = TIMEOUT_US;
 
   		if(select(sock_id+1, &fds, NULL, NULL, &tv) == 0){
-  			cout<<"Timeout on receiving packet. Sending the last acknowledgement."<<endl;
   			break;
   		}
   		else{
@@ -274,17 +243,16 @@ int main(int argc, char const* argv[]){
           }
           else{ //Packet was not dropped
             packet_count++;
-            /*
+
             if (packet_count == 10){
               //cout<<"Sleeping for 20000 micro seconds"<<endl;
-              usleep(20000);
+              //usleep(20000);
 
               packet_count = 0;
             }
-            */
-    				is_end_of_file = checkEndPacket(buffer);
+
+    				is_end_of_file = checkEndPacket(buffer, file_not_found);
     				if(is_end_of_file){
-              cout<<"End Packet received"<<endl;
               break;
             }
     				copyBufferData(file_data, buffer, sequenceNumber, acknowledgementNumber);
@@ -306,9 +274,15 @@ int main(int argc, char const* argv[]){
   }
 
   closeConnection(buffer, sequenceNumber, acknowledgementNumber, sock_id, server_address, addrlen );
-  ofstream output_file(file_name);
-  output_file<<file_data;
-  output_file.close();
+  if(!file_not_found){
+    ofstream output_file(file_name);
+    output_file<<file_data;
+    output_file.close();
+  }
+  else{
+    cout<<file_name<<" not found"<<endl;
+  }
+
 
   close(sock_id);
   free(buffer);
