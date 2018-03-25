@@ -91,7 +91,6 @@ if(duplicate_count >= 3){
  sequenceNumber = ackNum;
 
   byte_index = ackNum;
-  cout<<sequenceNumber<<" "<<ackNum<<" "<<byte_index<<endl;
 }
 
 string parseRequest(char* buffer, unsigned int& acknowledgementNumber){
@@ -131,7 +130,7 @@ void readFile(char* file_data, string file_name, int& file_size){
   ifstream file_id(file_name.c_str());
 
   if(!file_id){
-    cout<<"Could not find "<<file_name<<"."<<endl;
+    cout<<"Could not find "<<file_name<<endl;
     file_size = -1;
     return;
   }
@@ -178,6 +177,53 @@ int generateResponse(char* buffer, char* file_data, int file_size, int byte_inde
   //cout<<"Seq number for sending -- "<<sequenceNumber<<endl;
   //byte_index+=cur_size;
   return cur_size;
+}
+
+
+void closeConnection(char* buffer, char* file_data, unsigned int sequenceNumber, unsigned int acknowledgementNumber, int server_fd, struct sockaddr_in& remaddr, socklen_t raddrlen){
+  bzero(file_data, MAXFILESIZE);
+  generateResponse(buffer, file_data, MAXFILESIZE, 0, sequenceNumber, acknowledgementNumber, RECVWINDOW, 0);
+  bool is_connection_terminated = false;
+  while(!is_connection_terminated){
+    if(sendto(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, raddrlen) < 0){
+      perror("Error:");
+      cout<<"Sending Failed"<<endl;
+      close(server_fd);
+      free(buffer);
+      exit(EXIT_FAILURE);
+    }
+
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(server_fd, &fds);
+
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 10000;
+
+    if(select(server_fd+1, &fds, NULL, NULL, &tv) == 0){
+      cout<<"Failed to receive acknowledgement for connection termination packet."<<endl;
+    }
+    else{
+      if(recvfrom(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, &raddrlen) < 0){
+        cout<<"Failed to read the socket buffer."<<endl;
+      }
+      else{
+          bzero(buffer, BUFFSIZE);
+          is_connection_terminated = true;
+          generateResponse(buffer, file_data, MAXFILESIZE, 0, sequenceNumber, acknowledgementNumber, RECVWINDOW, 0);
+          buffer[11] = buffer[11] | 2;
+          cout<<"Sending final termination"<<endl;
+          if(sendto(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, raddrlen) < 0){
+            perror("Error:");
+            cout<<"Sending Failed"<<endl;
+            close(server_fd);
+            free(buffer);
+            exit(EXIT_FAILURE);
+          }
+      }
+    }
+  }
 }
 
 int main(int argc, char const* argv[]){
@@ -236,7 +282,7 @@ int main(int argc, char const* argv[]){
       bzero(file_data, MAXFILESIZE);
       int file_size = 0;
       readFile(file_data, file_name, file_size);
-
+      //if(file_size == -1) continue;
       fd_set fds;
       struct timeval tv;
       //cout<<sequenceNumber<<" "<<acknowledgementNumber<<endl;
@@ -260,7 +306,7 @@ int main(int argc, char const* argv[]){
             while(packet < min(cwnd, advertisedWindow) && (byte_index + prev_bytes) < file_size){
                 prev_bytes += generateResponse(buffer, file_data, file_size, byte_index, sequenceNumber, acknowledgementNumber, receiveWindow, prev_bytes);
                 //sequenceNumber=prev_bytes;
-                cout<<"Bytes send prev bytes "<<sequenceNumber+prev_bytes<<" "<<byte_index+prev_bytes<<endl;
+                //cout<<"Bytes send prev bytes "<<sequenceNumber+prev_bytes<<" "<<byte_index+prev_bytes<<endl;
                 if(sendto(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, raddrlen) <= 0){
                   perror("Error:");
                   cout<<"Sending Failed"<<endl;
@@ -303,7 +349,11 @@ int main(int argc, char const* argv[]){
         //}
       }
 
-      memset(file_data, 0, MAXFILESIZE);
+
+      //memset(file_data, 0, MAXFILESIZE);
+
+      closeConnection(buffer, file_data, sequenceNumber, acknowledgementNumber, server_fd, remaddr, raddrlen);
+      /*
       int it = 0;
       generateResponse(buffer, file_data, MAXFILESIZE, it, sequenceNumber, acknowledgementNumber, receiveWindow, 0);
       if(sendto(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, raddrlen) < 0){
@@ -314,9 +364,21 @@ int main(int argc, char const* argv[]){
         exit(EXIT_FAILURE);
       }
       bzero(buffer, BUFFSIZE);
+
+      if(select(server_fd+1, &fds, NULL, NULL, &tv) == 0){
+        cout<<"Failed to receive acknowledgement for connection termination packet."<<endl;
+        //perror("Error: ");
+        threshold = cwnd/2;
+        cwnd = 1;
+        duplicate_count = 0;
+      }
       //sequenceNumber+=1;
+      */
+
+      bzero(buffer, BUFFSIZE);
     }
     close(server_fd);
     free(buffer);
+    free(file_data);
 
 }

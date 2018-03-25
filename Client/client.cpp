@@ -17,6 +17,7 @@
 
 using namespace std;
 
+
 void generateRequest(string file_name, char* buffer, unsigned int& sequenceNumber, unsigned int acknowledgementNumber, unsigned int receiveWindow){
   unsigned char bytes[4];
   bytes[0] = (sequenceNumber >> 24) & 0XFF;
@@ -117,6 +118,48 @@ void generateAcknowledgement(char* buffer, unsigned int& sequenceNumber, unsigne
   bytes[3] = 1;
 
   memcpy(buffer+8, bytes, 4);
+}
+
+void closeConnection(char* buffer, unsigned int sequenceNumber, unsigned int acknowledgementNumber, int sock_id, struct sockaddr_in& server_address, socklen_t addrlen){
+  bool is_connection_terminated = false;
+  while(!is_connection_terminated){
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(sock_id, &fds);
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 10000;
+    if(select(sock_id+1, &fds, NULL, NULL, &tv) == 0){
+      cout<<"Timeout on receiving packet."<<endl;
+      is_connection_terminated = true;;
+    }
+    else{
+      if(recvfrom(sock_id, buffer, BUFFSIZE, 0, (struct sockaddr*)&server_address, &addrlen) < 0){
+        cout<<"Error while receiving packet from client socket."<<endl;
+        perror("Error: ");
+        is_connection_terminated = true;
+      }
+      else{
+        if((buffer[11] & 2) > 0){
+          is_connection_terminated = true;
+          cout<<"Terminated"<<endl;
+        }
+        else{
+          unsigned char temp = (unsigned char)buffer[11];
+          cout<<(int)temp<<endl;
+          cout<<"Resending the termination."<<endl;
+          bzero(buffer, BUFFSIZE);
+          generateAcknowledgement(buffer, sequenceNumber, acknowledgementNumber, RECVWINDOW);
+
+          if(sendto(sock_id, buffer, BUFFSIZE, 0, (struct sockaddr*)&server_address, addrlen) < 0){
+        		perror("Error");
+        		cout<<"Sending Failed"<<endl;
+        	}
+        }
+
+      }
+    }
+  }
 }
 
 int main(int argc, char const* argv[]){
@@ -231,12 +274,14 @@ int main(int argc, char const* argv[]){
           }
           else{ //Packet was not dropped
             packet_count++;
+            /*
             if (packet_count == 10){
               //cout<<"Sleeping for 20000 micro seconds"<<endl;
               usleep(20000);
 
               packet_count = 0;
             }
+            */
     				is_end_of_file = checkEndPacket(buffer);
     				if(is_end_of_file){
               cout<<"End Packet received"<<endl;
@@ -249,6 +294,7 @@ int main(int argc, char const* argv[]){
   		}
 
   	}
+
   	bzero(buffer, BUFFSIZE);
   	generateAcknowledgement(buffer, sequenceNumber, acknowledgementNumber, receiveWindow);
   	if(sendto(sock_id, buffer, BUFFSIZE, 0, (struct sockaddr*)&server_address, addrlen) < 0){
@@ -259,7 +305,7 @@ int main(int argc, char const* argv[]){
   	windowSize = min(window_packet + 1, advertisedWindow);
   }
 
-  //cout<<file_data<<endl;
+  closeConnection(buffer, sequenceNumber, acknowledgementNumber, sock_id, server_address, addrlen );
   ofstream output_file(file_name);
   output_file<<file_data;
   output_file.close();
