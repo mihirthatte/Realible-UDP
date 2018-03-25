@@ -16,13 +16,13 @@
 
 using namespace std;
 
-bool congestion_avoidance = false;
-bool fast_recovery = false;
-bool slow_start = true;
+bool congestion_avoidance;
+bool fast_recovery;
+bool slow_start;
 
-int congestion_avoidance_count = 0;
-int slow_start_count = 0;
-int fast_recovery_count = 0;
+int congestion_avoidance_count;
+int slow_start_count;
+int fast_recovery_count;
 int count_of_packets;
 
 int deviation = 1;
@@ -30,6 +30,7 @@ int threshold = 0;
 int cwnd = 1;
 int duplicate_count = 0;
 long long estimated_RTT = 0;
+
 long long calculate_timeout(long long sample_RTT){
     sample_RTT -= estimated_RTT>>3;
     estimated_RTT += sample_RTT;
@@ -239,7 +240,7 @@ void closeConnection(char* buffer, char* file_data, unsigned int sequenceNumber,
           if((buffer[11]&2) > 0) is_connection_terminated = true;
           bzero(buffer, BUFFSIZE);
           generateResponse(buffer, file_data, MAXFILESIZE, 0, sequenceNumber, acknowledgementNumber, RECVWINDOW, 0);
-          buffer[11] = buffer[11] | 2;          
+          buffer[11] = buffer[11] | 2;
           if(sendto(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, raddrlen) < 0){
             perror("Error:");
             cout<<"Sending Failed"<<endl;
@@ -296,6 +297,15 @@ int main(int argc, char const* argv[]){
     socklen_t raddrlen = sizeof(remaddr);
 
     while(1){
+      /* Initializing connection summary parameters - */
+      congestion_avoidance_count = 0;
+      slow_start_count = 0;
+      fast_recovery_count = 0;
+      count_of_packets = 0;
+      congestion_avoidance = false;
+      fast_recovery = false;
+      slow_start = true;
+
       cout<<"Receiving on port: "<<portNumber<<endl;
       unsigned int sequenceNumber = 0;
       unsigned int acknowledgementNumber = 0;

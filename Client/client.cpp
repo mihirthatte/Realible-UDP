@@ -159,7 +159,7 @@ void closeConnection(char* buffer, unsigned int sequenceNumber, unsigned int ack
 }
 
 int main(int argc, char const* argv[]){
-  if(argc != 6){
+  if(argc != 7){
     cout<<"Invalid number of parameters."<<endl;
     exit(EXIT_FAILURE);
   }
@@ -170,6 +170,7 @@ int main(int argc, char const* argv[]){
   string file_name = string(argv[3]);
   int advertisedWindow = atoi(argv[4]);
   int drop_probability = atoi(argv[5]);
+  int processing_delay = atoi(argv[6]);
 
   int sock_id;
 
@@ -242,15 +243,14 @@ int main(int argc, char const* argv[]){
           }
           int num = rand()%100;
           if (num < drop_probability){ //packet was dropped
-            cout<<num<<" Dropping the packet with drop probability of "<<drop_probability<<endl;
+            cout<<" Dropping the packet with drop probability of "<<drop_probability<<endl;
           }
           else{ //Packet was not dropped
             packet_count++;
 
-            if (packet_count == 10){
-              //cout<<"Sleeping for 20000 micro seconds"<<endl;
-              //usleep(20000);
-
+            if (processing_delay == 1 && packet_count == 20){
+              cout<<"Sleeping for 200 micro seconds"<<endl;
+              usleep(200);
               packet_count = 0;
             }
     				copyBufferData(file_data, buffer, sequenceNumber, acknowledgementNumber);
