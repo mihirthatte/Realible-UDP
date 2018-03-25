@@ -236,10 +236,13 @@ int main(int argc, char const* argv[]){
   			else{
           /* Drop packet with drop_probabilty -
           */
+          is_end_of_file = checkEndPacket(buffer, file_not_found);
+          if(is_end_of_file){
+            break;
+          }
           int num = rand()%100;
           if (num < drop_probability){ //packet was dropped
             cout<<num<<" Dropping the packet with drop probability of "<<drop_probability<<endl;
-            break;
           }
           else{ //Packet was not dropped
             packet_count++;
@@ -250,13 +253,8 @@ int main(int argc, char const* argv[]){
 
               packet_count = 0;
             }
-
-    				is_end_of_file = checkEndPacket(buffer, file_not_found);
-    				if(is_end_of_file){
-              break;
-            }
     				copyBufferData(file_data, buffer, sequenceNumber, acknowledgementNumber);
-        }
+          }
   			}
 
   		}
