@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <unistd.h>
 #include <string.h>
+#include <stdlib.h>
 #include <arpa/inet.h>
 #include <fstream>
 
@@ -119,15 +120,17 @@ void generateAcknowledgement(char* buffer, unsigned int& sequenceNumber, unsigne
 }
 
 int main(int argc, char const* argv[]){
-  if(argc != 5){
+  if(argc != 6){
     cout<<"Invalid number of parameters."<<endl;
     exit(EXIT_FAILURE);
   }
 
+  srand (time(NULL)); //Initializing random seed to null
   string server_host = string(argv[1]);
   int server_port = atoi(argv[2]);
   string file_name = string(argv[3]);
   int advertisedWindow = atoi(argv[4]);
+  int drop_probability = atoi(argv[5]);
 
   int sock_id;
 
@@ -219,12 +222,21 @@ int main(int argc, char const* argv[]){
   				perror("Error: ");
   			}
   			else{
-  				is_end_of_file = checkEndPacket(buffer);
-  				if(is_end_of_file){
-            cout<<"End Packet received"<<endl;
+          /* Drop packet with drop_probabilty -
+          */
+          int num = rand()%100;
+          if (num < drop_probability){ //packet was dropped
+            cout<<num<<" Dropping the packet with drop probability of "<<drop_probability<<endl;
             break;
           }
-  				copyBufferData(file_data, buffer, sequenceNumber, acknowledgementNumber);
+          else{ //Packet was not dropped
+    				is_end_of_file = checkEndPacket(buffer);
+    				if(is_end_of_file){
+              cout<<"End Packet received"<<endl;
+              break;
+            }
+    				copyBufferData(file_data, buffer, sequenceNumber, acknowledgementNumber);
+        }
   			}
 
   		}
