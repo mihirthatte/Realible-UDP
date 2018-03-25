@@ -236,11 +236,10 @@ void closeConnection(char* buffer, char* file_data, unsigned int sequenceNumber,
         perror("Error: ");
       }
       else{
+          if((buffer[11]&2) > 0) is_connection_terminated = true;
           bzero(buffer, BUFFSIZE);
-          is_connection_terminated = true;
           generateResponse(buffer, file_data, MAXFILESIZE, 0, sequenceNumber, acknowledgementNumber, RECVWINDOW, 0);
-          buffer[11] = buffer[11] | 2;
-          cout<<"Sending final termination"<<endl;
+          buffer[11] = buffer[11] | 2;          
           if(sendto(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, raddrlen) < 0){
             perror("Error:");
             cout<<"Sending Failed"<<endl;
@@ -320,7 +319,6 @@ int main(int argc, char const* argv[]){
       cwnd = 1;
       duplicate_count = 0;
       threshold = advertisedWindow;
-      cout<<"File size: "<<file_size<<endl;
       while(byte_index < file_size){
 
         //Start the timer for measuring RTT -
@@ -389,20 +387,23 @@ int main(int argc, char const* argv[]){
 
       bool file_not_found = file_size == -1 ? true : false;
       closeConnection(buffer, file_data, sequenceNumber, acknowledgementNumber, server_fd, remaddr, raddrlen, file_not_found);
-      cout<<"File "<<file_name<<" sent successfully to the Client"<<endl;
-      cout<<"Connection summary - "<<endl;
-      cout<<"--------------------------"<<endl;
-      cout<<"Total Number of packets sent - "<<count_of_packets<<endl;
-      cout<<"Number of packets transferred in slow start phase - "<<slow_start_count<<endl;
-      cout<<"Percentage of packets transferred in slow start phase - "<<((float)slow_start_count/count_of_packets)<<endl;
-      cout<<endl;
-      cout<<"Number of packets transferred in Congestion Avoidance phase - "<<congestion_avoidance_count<<endl;
-      cout<<"Percentage of packets transferred in Congestion Avoidance phase  - "<<((float)congestion_avoidance_count/count_of_packets)<<endl;
-      cout<<endl;
-      cout<<"Number of packets transferred in Fast Recovery phase - "<<fast_recovery_count<<endl;
-      cout<<"Percentage of packets transferred in Fast Recovery phase - "<<((float)fast_recovery_count/count_of_packets)<<endl;
-      cout<<"--------------------------"<<endl;
-      cout<<endl;
+      if(!file_not_found){
+        cout<<"File "<<file_name<<" sent successfully to the Client"<<endl;
+        cout<<"Connection summary - "<<endl;
+        cout<<"--------------------------"<<endl;
+        cout<<"Total Number of packets sent - "<<count_of_packets<<endl;
+        cout<<"Number of packets transferred in slow start phase - "<<slow_start_count<<endl;
+        cout<<"Percentage of packets transferred in slow start phase - "<<((float)slow_start_count/count_of_packets)<<endl;
+        cout<<endl;
+        cout<<"Number of packets transferred in Congestion Avoidance phase - "<<congestion_avoidance_count<<endl;
+        cout<<"Percentage of packets transferred in Congestion Avoidance phase  - "<<((float)congestion_avoidance_count/count_of_packets)<<endl;
+        cout<<endl;
+        cout<<"Number of packets transferred in Fast Recovery phase - "<<fast_recovery_count<<endl;
+        cout<<"Percentage of packets transferred in Fast Recovery phase - "<<((float)fast_recovery_count/count_of_packets)<<endl;
+        cout<<"--------------------------"<<endl;
+        cout<<endl;
+      }
+
       bzero(buffer, BUFFSIZE);
     }
     close(server_fd);

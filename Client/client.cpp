@@ -94,7 +94,7 @@ void copyBufferData(char* file_data, char* buffer, unsigned int& sequenceNumber,
   }
 }
 
-void generateAcknowledgement(char* buffer, unsigned int& sequenceNumber, unsigned int& acknowledgementNumber, unsigned int receiveWindow){
+void generateAcknowledgement(char* buffer, unsigned int& sequenceNumber, unsigned int& acknowledgementNumber, unsigned int receiveWindow, bool is_end_of_file){
   unsigned char bytes[4];
   bytes[0] = (sequenceNumber >> 24) & 0XFF;
   bytes[1] = (sequenceNumber >> 16) & 0XFF;
@@ -116,7 +116,7 @@ void generateAcknowledgement(char* buffer, unsigned int& sequenceNumber, unsigne
   bytes[1] = receiveWindow & 0XFF;
   bytes[2] = 0;
   bytes[3] = 1;
-
+  if(is_end_of_file) bytes[3] = bytes[3] | 2;
   memcpy(buffer+8, bytes, 4);
 }
 
@@ -145,7 +145,7 @@ void closeConnection(char* buffer, unsigned int sequenceNumber, unsigned int ack
         else{
           unsigned char temp = (unsigned char)buffer[11];
           bzero(buffer, BUFFSIZE);
-          generateAcknowledgement(buffer, sequenceNumber, acknowledgementNumber, RECVWINDOW);
+          generateAcknowledgement(buffer, sequenceNumber, acknowledgementNumber, RECVWINDOW, true);
 
           if(sendto(sock_id, buffer, BUFFSIZE, 0, (struct sockaddr*)&server_address, addrlen) < 0){
         		perror("Error");
@@ -262,7 +262,7 @@ int main(int argc, char const* argv[]){
   	}
 
   	bzero(buffer, BUFFSIZE);
-  	generateAcknowledgement(buffer, sequenceNumber, acknowledgementNumber, receiveWindow);
+  	generateAcknowledgement(buffer, sequenceNumber, acknowledgementNumber, receiveWindow, is_end_of_file);
   	if(sendto(sock_id, buffer, BUFFSIZE, 0, (struct sockaddr*)&server_address, addrlen) < 0){
   		perror("Error");
   		cout<<"Sending Failed"<<endl;
