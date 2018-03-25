@@ -37,7 +37,6 @@ long long calculate_timeout(long long sample_RTT){
         sample_RTT = - 1 * sample_RTT;
     sample_RTT -= deviation >> 3;
     deviation += sample_RTT;
-    //cout<<"Estimated time "<<estimated_RTT<<endl;
     return ((estimated_RTT >> 3) + (deviation >> 1));
 }
 
@@ -50,27 +49,25 @@ void parseAcknowledgement(char* buffer, unsigned int& sequenceNumber, unsigned i
   bytes[2] = buffer[iterator++];
   bytes[3] = buffer[iterator++];
   unsigned int seqNum = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | (bytes[3]);
-  //cout<<sequenceNumber<<endl;
+
   bytes[0] = buffer[iterator++];
   bytes[1] = buffer[iterator++];
   bytes[2] = buffer[iterator++];
   bytes[3] = buffer[iterator++];
 
   unsigned int ackNum = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | (bytes[3]);
-  //cout<<acknowledgementNumber<<endl;
+
   bytes[0] = buffer[iterator++];
   bytes[1] = buffer[iterator++];
   bytes[2] = buffer[iterator++];
   bytes[3] = buffer[iterator++];
 
   unsigned int recvWin = (bytes[0] << 8) | (bytes[1]);
-  //cout<<receiveWindow<<endl;
+
   if((bytes[3] & 1) == 0){
-    cout<<"Acknowledgement flag is not set"<<endl;
     return;
   }
   if(acknowledgementNumber != seqNum){
-    cout<<"Server acknowledgement number did not match with the client sequence number."<<endl;
     return;
   }
 
@@ -134,22 +131,21 @@ string parseRequest(char* buffer, unsigned int& acknowledgementNumber){
   bytes[2] = buffer[iterator++];
   bytes[3] = buffer[iterator++];
   unsigned int seqNum = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | (bytes[3]);
-  //cout<<sequenceNumber<<endl;
+
   bytes[0] = buffer[iterator++];
   bytes[1] = buffer[iterator++];
   bytes[2] = buffer[iterator++];
   bytes[3] = buffer[iterator++];
 
   unsigned int ackNumber = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | (bytes[3]);
-  //cout<<"Receiver says ack - "<<ackNumber<<endl;
-  //cout<<acknowledgementNumber<<endl;
+
   bytes[0] = buffer[iterator++];
   bytes[1] = buffer[iterator++];
   bytes[2] = buffer[iterator++];
   bytes[3] = buffer[iterator++];
 
   unsigned int recvWin = (bytes[0] << 8) | (bytes[1]);
-  //cout<<receiveWindow<<endl;
+
   string file_name = "";
   while(buffer[iterator] != '\0'){
     file_name+=string(1, buffer[iterator++]);
@@ -206,16 +202,16 @@ int generateResponse(char* buffer, char* file_data, int file_size, int byte_inde
 
   int cur_size = min(DATASIZE, file_size - byte_index);
   memcpy(buffer+12, file_data+byte_index+prev_bytes, cur_size);
-  //cout<<"Seq number for sending -- "<<sequenceNumber<<endl;
-  //byte_index+=cur_size;
+
   return cur_size;
 }
 
 
-void closeConnection(char* buffer, char* file_data, unsigned int sequenceNumber, unsigned int acknowledgementNumber, int server_fd, struct sockaddr_in& remaddr, socklen_t raddrlen){
+void closeConnection(char* buffer, char* file_data, unsigned int sequenceNumber, unsigned int acknowledgementNumber, int server_fd, struct sockaddr_in& remaddr, socklen_t raddrlen, bool file_not_found){
   bzero(file_data, MAXFILESIZE);
   generateResponse(buffer, file_data, MAXFILESIZE, 0, sequenceNumber, acknowledgementNumber, RECVWINDOW, 0);
   bool is_connection_terminated = false;
+  if(file_not_found) buffer[11] = buffer[11] | 4;
   while(!is_connection_terminated){
     if(sendto(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, raddrlen) < 0){
       perror("Error:");
@@ -233,12 +229,11 @@ void closeConnection(char* buffer, char* file_data, unsigned int sequenceNumber,
     tv.tv_sec = 0;
     tv.tv_usec = 10000;
 
-    if(select(server_fd+1, &fds, NULL, NULL, &tv) == 0){
-      //cout<<"Failed to receive acknowledgement for connection termination packet."<<endl;
-    }
-    else{
+
+    if(select(server_fd+1, &fds, NULL, NULL, &tv) != 0){
       if(recvfrom(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, &raddrlen) < 0){
         cout<<"Failed to read the socket buffer."<<endl;
+        perror("Error: ");
       }
       else{
           bzero(buffer, BUFFSIZE);
@@ -319,7 +314,7 @@ int main(int argc, char const* argv[]){
       struct timeval tv;
       int byte_index = 0;
 
-      //set intial timeout to 1000000 microsecs;
+      //set intial timeout to 900000 microsecs;
       tv.tv_sec = 0;
       tv.tv_usec = 900000;
       cwnd = 1;
@@ -350,8 +345,6 @@ int main(int argc, char const* argv[]){
             FD_SET(server_fd, &fds);
 
             if(select(server_fd+1, &fds, NULL, NULL, &tv) == 0){
-              //cout<<"Failed to receive acknowledgement. Retransmitting the packet."<<endl;
-              //perror("Error: ");
               if(!slow_start){
                 cout<<endl;
                 cout<<"Time out event has occurred. Changing the state to Slow Start"<<endl;
@@ -394,8 +387,8 @@ int main(int argc, char const* argv[]){
             }
       }
 
-
-      closeConnection(buffer, file_data, sequenceNumber, acknowledgementNumber, server_fd, remaddr, raddrlen);
+      bool file_not_found = file_size == -1 ? true : false;
+      closeConnection(buffer, file_data, sequenceNumber, acknowledgementNumber, server_fd, remaddr, raddrlen, file_not_found);
       cout<<"File "<<file_name<<" sent successfully to the Client"<<endl;
       cout<<"Connection summary - "<<endl;
       cout<<"--------------------------"<<endl;
