@@ -200,7 +200,7 @@ int main(int argc, char const* argv[]){
   fd_set fds;
   struct timeval tv;
 
-
+  int packet_count = 0;
   while(!is_end_of_file){
   	int window_packet;
   	for(window_packet = 0; (window_packet < windowSize) && (!is_end_of_file); window_packet++){
@@ -230,6 +230,13 @@ int main(int argc, char const* argv[]){
             break;
           }
           else{ //Packet was not dropped
+            packet_count++;
+            if (packet_count == 10){
+              //cout<<"Sleeping for 20000 micro seconds"<<endl;
+              usleep(20000);
+
+              packet_count = 0;
+            }
     				is_end_of_file = checkEndPacket(buffer);
     				if(is_end_of_file){
               cout<<"End Packet received"<<endl;
