@@ -1,7 +1,9 @@
 ***Realibale UDP protocol***
 
-To run the Application, first run make command to compile and create executable files of client and server program
-``` make ```
+To run the Application, first run make command to compile and create executable files of client and server program.
+``` 
+make 
+```
 
 ## Execute server - 
 cd into Server directory and server executable file.
