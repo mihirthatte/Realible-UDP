@@ -16,6 +16,15 @@
 
 using namespace std;
 
+bool congestion_avoidance = false;
+bool fast_recovery = false;
+bool slow_start = true;
+
+int congestion_avoidance_count = 0;
+int slow_start_count = 0;
+int fast_recovery_count = 0;
+int count_of_packets;
+
 int deviation = 1;
 int threshold = 0;
 int cwnd = 1;
@@ -79,12 +88,35 @@ if(sequenceNumber == ackNum){
 }
 
 if(cwnd * 2 > threshold){
+  if(!congestion_avoidance){
+    if(slow_start){
+        cout<<endl;
+        cout<<"Changing from Slow start to Congestion Avoidance."<<endl;
+        cout<<endl;
+    }
+    else{
+      cout<<endl;
+      cout<<"Changing from fast Recovery to Congestion Avoidance."<<endl;
+      cout<<endl;
+    }
+    fast_recovery = false;
+    slow_start = false;
+    congestion_avoidance = true;
+  }
   cwnd+=1;
 }
 else{
   cwnd*=2;
 }
 if(duplicate_count >= 3){
+  slow_start = false;
+  congestion_avoidance = false;
+  if(!fast_recovery){
+    cout<<endl;
+    cout<<"3 duplicate ACK received. Changing the state from Congestion Avoidance to Fast Recovery"<<endl;
+    cout<<endl;
+    fast_recovery = true;
+  }
   cwnd = threshold;
 }
   duplicate_count = 0;
@@ -202,7 +234,7 @@ void closeConnection(char* buffer, char* file_data, unsigned int sequenceNumber,
     tv.tv_usec = 10000;
 
     if(select(server_fd+1, &fds, NULL, NULL, &tv) == 0){
-      cout<<"Failed to receive acknowledgement for connection termination packet."<<endl;
+      //cout<<"Failed to receive acknowledgement for connection termination packet."<<endl;
     }
     else{
       if(recvfrom(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, &raddrlen) < 0){
@@ -282,10 +314,9 @@ int main(int argc, char const* argv[]){
       bzero(file_data, MAXFILESIZE);
       int file_size = 0;
       readFile(file_data, file_name, file_size);
-      //if(file_size == -1) continue;
+
       fd_set fds;
       struct timeval tv;
-      //cout<<sequenceNumber<<" "<<acknowledgementNumber<<endl;
       int byte_index = 0;
 
       //set intial timeout to 1000000 microsecs;
@@ -299,14 +330,12 @@ int main(int argc, char const* argv[]){
 
         //Start the timer for measuring RTT -
         auto start_timer = std::chrono::high_resolution_clock::now();
-        //for(int cwnd = 1; cwnd <2; cwnd*=2){
+
 
             int prev_bytes = 0;
             int packet = 0;
             while(packet < min(cwnd, advertisedWindow) && (byte_index + prev_bytes) < file_size){
                 prev_bytes += generateResponse(buffer, file_data, file_size, byte_index, sequenceNumber, acknowledgementNumber, receiveWindow, prev_bytes);
-                //sequenceNumber=prev_bytes;
-                //cout<<"Bytes send prev bytes "<<sequenceNumber+prev_bytes<<" "<<byte_index+prev_bytes<<endl;
                 if(sendto(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, raddrlen) <= 0){
                   perror("Error:");
                   cout<<"Sending Failed"<<endl;
@@ -321,8 +350,14 @@ int main(int argc, char const* argv[]){
             FD_SET(server_fd, &fds);
 
             if(select(server_fd+1, &fds, NULL, NULL, &tv) == 0){
-              cout<<"Failed to receive acknowledgement. Retransmitting the packet."<<endl;
+              //cout<<"Failed to receive acknowledgement. Retransmitting the packet."<<endl;
               //perror("Error: ");
+              if(!slow_start){
+                cout<<endl;
+                cout<<"Time out event has occurred. Changing the state to Slow Start"<<endl;
+                cout<<endl;
+                slow_start = true;
+              }
               threshold = cwnd/2;
               cwnd = 1;
               duplicate_count = 0;
@@ -332,49 +367,49 @@ int main(int argc, char const* argv[]){
                 cout<<"Failed to read the socket buffer."<<endl;
                 }
                 else{
-                //Ack received, end timer
-                auto end_timer = std::chrono::high_resolution_clock::now() - start_timer;
-                long long elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end_timer).count();
-                //cout<<"RTT was - "<<elapsed<<" micro seconds"<<endl;
-                //Calculate timeout value using Jacobson/Karels Algorithm -
-                if (estimated_RTT == 0)
-                    estimated_RTT = elapsed;
-                //set timeout for next packet -
-                tv.tv_usec = calculate_timeout(elapsed);
-                //cout<<"Time out - "<<tv.tv_usec<<endl;
-                parseAcknowledgement(buffer, sequenceNumber, acknowledgementNumber, byte_index, prev_bytes);
+                  count_of_packets++;
+                  if(slow_start){
+                    slow_start_count++;
+                  }
+                  else if(congestion_avoidance){
+                    congestion_avoidance_count++;
+                  }
+                  else if(fast_recovery){
+                    fast_recovery_count++;
+                  }
+
+                  //Ack received, end timer
+                  auto end_timer = std::chrono::high_resolution_clock::now() - start_timer;
+                  long long elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end_timer).count();
+
+                  //Calculate timeout value using Jacobson/Karels Algorithm -
+                  if (estimated_RTT == 0)
+                      estimated_RTT = elapsed;
+                  //set timeout for next packet -
+                  tv.tv_usec = calculate_timeout(elapsed);
+
+                  parseAcknowledgement(buffer, sequenceNumber, acknowledgementNumber, byte_index, prev_bytes);
                 }
                 bzero(buffer, BUFFSIZE);
             }
-        //}
       }
 
-
-      //memset(file_data, 0, MAXFILESIZE);
 
       closeConnection(buffer, file_data, sequenceNumber, acknowledgementNumber, server_fd, remaddr, raddrlen);
-      /*
-      int it = 0;
-      generateResponse(buffer, file_data, MAXFILESIZE, it, sequenceNumber, acknowledgementNumber, receiveWindow, 0);
-      if(sendto(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, raddrlen) < 0){
-        perror("Error:");
-        cout<<"Sending Failed"<<endl;
-        close(server_fd);
-        free(buffer);
-        exit(EXIT_FAILURE);
-      }
-      bzero(buffer, BUFFSIZE);
-
-      if(select(server_fd+1, &fds, NULL, NULL, &tv) == 0){
-        cout<<"Failed to receive acknowledgement for connection termination packet."<<endl;
-        //perror("Error: ");
-        threshold = cwnd/2;
-        cwnd = 1;
-        duplicate_count = 0;
-      }
-      //sequenceNumber+=1;
-      */
-
+      cout<<"File "<<file_name<<" sent successfully to the Client"<<endl;
+      cout<<"Connection summary - "<<endl;
+      cout<<"--------------------------"<<endl;
+      cout<<"Total Number of packets sent - "<<count_of_packets<<endl;
+      cout<<"Number of packets transferred in slow start phase - "<<slow_start_count<<endl;
+      cout<<"Percentage of packets transferred in slow start phase - "<<((float)slow_start_count/count_of_packets)<<endl;
+      cout<<endl;
+      cout<<"Number of packets transferred in Congestion Avoidance phase - "<<congestion_avoidance_count<<endl;
+      cout<<"Percentage of packets transferred in Congestion Avoidance phase  - "<<((float)congestion_avoidance_count/count_of_packets)<<endl;
+      cout<<endl;
+      cout<<"Number of packets transferred in Fast Recovery phase - "<<fast_recovery_count<<endl;
+      cout<<"Percentage of packets transferred in Fast Recovery phase - "<<((float)fast_recovery_count/count_of_packets)<<endl;
+      cout<<"--------------------------"<<endl;
+      cout<<endl;
       bzero(buffer, BUFFSIZE);
     }
     close(server_fd);

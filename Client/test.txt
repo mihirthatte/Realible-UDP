@@ -1,3 +1,2 @@
-This is a sample test file.
-testing the server client file transfer
-Multiple lines.
+Hi I am a test
+file
