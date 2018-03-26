@@ -17,6 +17,7 @@
 
 using namespace std;
 
+unsigned int baseNumber;
 
 void generateRequest(string file_name, char* buffer, unsigned int& sequenceNumber, unsigned int acknowledgementNumber, unsigned int receiveWindow){
   unsigned char bytes[4];
@@ -90,7 +91,7 @@ void copyBufferData(char* file_data, char* buffer, unsigned int& sequenceNumber,
 
   for(int index = 12; index < BUFFSIZE; index++){
     if(buffer[index] == '\0') break;
-    file_data[acknowledgementNumber++] = buffer[index];
+    file_data[(acknowledgementNumber++ - baseNumber)] = buffer[index];
   }
 }
 
@@ -129,6 +130,7 @@ void closeConnection(char* buffer, unsigned int sequenceNumber, unsigned int ack
     struct timeval tv;
     tv.tv_sec = 0;
     tv.tv_usec = 10000;
+
     if(select(sock_id+1, &fds, NULL, NULL, &tv) == 0){
       is_connection_terminated = true;;
     }
@@ -191,7 +193,8 @@ int main(int argc, char const* argv[]){
   }
 
   unsigned int sequenceNumber = 0;
-  unsigned int acknowledgementNumber = 0;
+  unsigned int acknowledgementNumber = 4294962293;
+  baseNumber = acknowledgementNumber;
   unsigned int receiveWindow = RECVWINDOW;
   char* buffer = (char*)calloc(BUFFSIZE, sizeof(char));
   generateRequest(file_name, buffer, sequenceNumber, acknowledgementNumber, receiveWindow);
@@ -219,7 +222,6 @@ int main(int argc, char const* argv[]){
   	int window_packet;
   	for(window_packet = 0; (window_packet < windowSize) && (!is_end_of_file); window_packet++){
   		bzero(buffer, BUFFSIZE);
-
   		FD_ZERO(&fds);
   		FD_SET(sock_id, &fds);
 
