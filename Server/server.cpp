@@ -16,6 +16,7 @@
 
 using namespace std;
 
+unsigned int baseNumber = 0;
 bool congestion_avoidance;
 bool fast_recovery;
 bool slow_start;
@@ -42,7 +43,7 @@ long long calculate_timeout(long long sample_RTT){
 }
 
 
-void parseAcknowledgement(char* buffer, unsigned int& sequenceNumber, unsigned int& acknowledgementNumber, int& byte_index, int prev_bytes){
+void parseAcknowledgement(char* buffer, unsigned int& sequenceNumber, unsigned int& acknowledgementNumber, unsigned int& byte_index, int prev_bytes){
   unsigned char bytes[4];
   int iterator = 0;
   bytes[0] = buffer[iterator++];
@@ -176,7 +177,7 @@ void readFile(char* file_data, string file_name, int& file_size){
   }
 }
 
-int generateResponse(char* buffer, char* file_data, int file_size, int byte_index, unsigned int sequenceNumber, unsigned int acknowledgementNumber, unsigned int receiveWindow, int prev_bytes){
+int generateResponse(char* buffer, char* file_data, int file_size, unsigned int byte_index, unsigned int sequenceNumber, unsigned int acknowledgementNumber, unsigned int receiveWindow, int prev_bytes){
   unsigned char bytes[4];
   bytes[0] = ((sequenceNumber + prev_bytes)>> 24) & 0XFF;
   bytes[1] = ((sequenceNumber + prev_bytes) >> 16) & 0XFF;
@@ -201,8 +202,12 @@ int generateResponse(char* buffer, char* file_data, int file_size, int byte_inde
 
   memcpy(buffer+8, bytes, 4);
 
-  int cur_size = min(DATASIZE, file_size - byte_index);
-  memcpy(buffer+12, file_data+byte_index+prev_bytes, cur_size);
+  int cur_size = min(DATASIZE, file_size - (int)(byte_index - baseNumber));
+  memcpy(buffer+12, file_data+((int)(byte_index - baseNumber)+prev_bytes), cur_size);
+
+  for(int index = 12; index < BUFFSIZE; index++){
+    if(buffer[index] == '\0') break;
+  }
 
   return cur_size;
 }
@@ -214,6 +219,7 @@ void closeConnection(char* buffer, char* file_data, unsigned int sequenceNumber,
   bool is_connection_terminated = false;
   if(file_not_found) buffer[11] = buffer[11] | 4;
   while(!is_connection_terminated){
+    //cout<<"Sending again"<<endl;
     if(sendto(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, raddrlen) < 0){
       perror("Error:");
       cout<<"Sending Failed"<<endl;
@@ -230,7 +236,7 @@ void closeConnection(char* buffer, char* file_data, unsigned int sequenceNumber,
     tv.tv_sec = 0;
     tv.tv_usec = 10000;
 
-
+    //cout<<sequenceNumber<<endl;
     if(select(server_fd+1, &fds, NULL, NULL, &tv) != 0){
       if(recvfrom(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, &raddrlen) < 0){
         cout<<"Failed to read the socket buffer."<<endl;
@@ -307,8 +313,9 @@ int main(int argc, char const* argv[]){
       slow_start = true;
 
       cout<<"Receiving on port: "<<portNumber<<endl;
-      unsigned int sequenceNumber = 0;
+      unsigned int sequenceNumber = 4294962293;
       unsigned int acknowledgementNumber = 0;
+      baseNumber = sequenceNumber;
       unsigned int receiveWindow = RECVWINDOW;
       recvlen = recvfrom(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, &raddrlen);
 
@@ -318,18 +325,17 @@ int main(int argc, char const* argv[]){
       bzero(file_data, MAXFILESIZE);
       int file_size = 0;
       readFile(file_data, file_name, file_size);
-
       fd_set fds;
       struct timeval tv;
-      int byte_index = 0;
-
+      unsigned int byte_index = sequenceNumber;
+      cout<<file_size<<" "<<baseNumber<<endl;
       //set intial timeout to 900000 microsecs;
       tv.tv_sec = 0;
       tv.tv_usec = 900000;
       cwnd = 1;
       duplicate_count = 0;
       threshold = advertisedWindow;
-      while(byte_index < file_size){
+      while((int)(byte_index - baseNumber) < file_size){
 
         //Start the timer for measuring RTT -
         auto start_timer = std::chrono::high_resolution_clock::now();
@@ -337,8 +343,9 @@ int main(int argc, char const* argv[]){
 
             int prev_bytes = 0;
             int packet = 0;
-            while(packet < min(cwnd, advertisedWindow) && (byte_index + prev_bytes) < file_size){
+            while(packet < min(cwnd, advertisedWindow) && ((int)(byte_index - baseNumber) + prev_bytes) < file_size){
                 prev_bytes += generateResponse(buffer, file_data, file_size, byte_index, sequenceNumber, acknowledgementNumber, receiveWindow, prev_bytes);
+
                 if(sendto(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, raddrlen) <= 0){
                   perror("Error:");
                   cout<<"Sending Failed"<<endl;
@@ -351,7 +358,6 @@ int main(int argc, char const* argv[]){
             }
             FD_ZERO(&fds);
             FD_SET(server_fd, &fds);
-
             if(select(server_fd+1, &fds, NULL, NULL, &tv) == 0){
               if(!slow_start){
                 cout<<endl;
