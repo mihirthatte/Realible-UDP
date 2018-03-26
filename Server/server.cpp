@@ -219,7 +219,6 @@ void closeConnection(char* buffer, char* file_data, unsigned int sequenceNumber,
   bool is_connection_terminated = false;
   if(file_not_found) buffer[11] = buffer[11] | 4;
   while(!is_connection_terminated){
-    //cout<<"Sending again"<<endl;
     if(sendto(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, raddrlen) < 0){
       perror("Error:");
       cout<<"Sending Failed"<<endl;
@@ -236,7 +235,6 @@ void closeConnection(char* buffer, char* file_data, unsigned int sequenceNumber,
     tv.tv_sec = 0;
     tv.tv_usec = 10000;
 
-    //cout<<sequenceNumber<<endl;
     if(select(server_fd+1, &fds, NULL, NULL, &tv) != 0){
       if(recvfrom(server_fd, buffer, BUFFSIZE, 0, (struct sockaddr*)&remaddr, &raddrlen) < 0){
         cout<<"Failed to read the socket buffer."<<endl;
@@ -328,7 +326,7 @@ int main(int argc, char const* argv[]){
       fd_set fds;
       struct timeval tv;
       unsigned int byte_index = sequenceNumber;
-      cout<<file_size<<" "<<baseNumber<<endl;
+      
       //set intial timeout to 900000 microsecs;
       tv.tv_sec = 0;
       tv.tv_usec = 900000;
