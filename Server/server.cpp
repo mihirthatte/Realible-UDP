@@ -1,37 +1,6 @@
-#include <iostream>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <cstdlib>
-#include <cstring>
-#include <fstream>
-#include <unistd.h>
-#include <ctime>
-#include <chrono>
+#include "headers.h"
 
-#define DATASIZE 1460
-#define BUFFSIZE 1472
-#define RECVWINDOW 65535
-#define MAXFILESIZE 10000000
-#define TIMEOUT_MS 100000
-
-using namespace std;
-
-unsigned int baseNumber = 0;
-bool congestion_avoidance;
-bool fast_recovery;
-bool slow_start;
-
-int congestion_avoidance_count;
-int slow_start_count;
-int fast_recovery_count;
-int count_of_packets;
-
-int deviation = 1;
-int threshold = 0;
-int cwnd = 1;
-int duplicate_count = 0;
-long long estimated_RTT = 0;
-
+//using namespace std;
 long long calculate_timeout(long long sample_RTT){
     sample_RTT -= estimated_RTT>>3;
     estimated_RTT += sample_RTT;
@@ -154,27 +123,6 @@ string parseRequest(char* buffer, unsigned int& acknowledgementNumber){
     acknowledgementNumber++;
   }
   return file_name;
-}
-
-void readFile(char* file_data, string file_name, int& file_size){
-  ifstream file_id(file_name.c_str());
-
-  if(!file_id){
-    cout<<"Could not find "<<file_name<<endl;
-    file_size = -1;
-    return;
-  }
-  else{
-    string temp = "";
-    int iterator = 0;
-    while(getline(file_id, temp)){
-      temp+="\n";
-      memcpy(file_data+iterator, temp.c_str(), temp.size());
-      iterator+=temp.size();
-    }
-    file_size = iterator;
-    file_id.close();
-  }
 }
 
 int generateResponse(char* buffer, char* file_data, int file_size, unsigned int byte_index, unsigned int sequenceNumber, unsigned int acknowledgementNumber, unsigned int receiveWindow, int prev_bytes){
