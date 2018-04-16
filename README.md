@@ -9,12 +9,12 @@ make
 cd into Server directory and server executable file.
 ```
 cd Server
-./server /server [PORT] [Receive Window] 
+./server_program [PORT] [Receive Window] 
 ```
 ## Example Server Command - 
 To execute server on PORT 20001 with window size of 20, run - 
 ```
-./server 20001 20
+./server_program 20001 20
 ```
 
 ## Execute Client - 
